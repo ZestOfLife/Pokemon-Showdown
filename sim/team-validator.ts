@@ -54,6 +54,8 @@ export class PokemonSources {
 	sketchMove?: string;
 	hm?: string;
 	restrictiveMoves?: string[];
+	/** Obscure learn methods */
+	restrictedMove?: ID;
 	/**
 	 * `limitedEgg` tracks moves that can only be obtained from an egg with
 	 * another father in gen 2-5. If there are multiple such moves,
@@ -128,6 +130,15 @@ export class PokemonSources {
 			}
 		}
 
+		if (other.restrictedMove && other.restrictedMove !== this.restrictedMove) {
+			if (this.restrictedMove) {
+				// incompatible
+				this.sources = [];
+				this.sourcesBefore = 0;
+			} else {
+				this.restrictedMove = other.restrictedMove;
+			}
+		}
 		if (other.sourcesAfter > this.sourcesAfter) this.sourcesAfter = other.sourcesAfter;
 		if (other.isHidden) this.isHidden = true;
 	}
@@ -488,8 +499,8 @@ export class TeamValidator {
 				if (eventProblems) problems.push(...eventProblems);
 			}
 		} else if (ruleTable.has('validatemisc') && template.eventOnly) {
-			const eventTemplate = !template.learnset && template.baseSpecies !== template.species &&
-				template.id !== 'zygarde10' ? dex.getTemplate(template.baseSpecies) : template;
+			const eventTemplate = !template.eventPokemon && template.baseSpecies !== template.species ?
+				 dex.getTemplate(template.baseSpecies) : template;
 			const eventPokemon = eventTemplate.eventPokemon;
 			if (!eventPokemon) throw new Error(`Event-only template ${template.species} has no eventPokemon table`);
 			let legal = false;
@@ -1446,7 +1457,8 @@ export class TeamValidator {
 
 		const moveid = toID(move);
 		move = dex.getMove(moveid);
-		let template: Template | null = dex.getTemplate(species);
+		const baseTemplate = dex.getTemplate(species);
+		let template: Template | null = baseTemplate;
 
 		const format = this.format;
 		const ruleTable = dex.getRuleTable(format);
@@ -1590,8 +1602,8 @@ export class TeamValidator {
 						}
 					}
 
-					if ('LMT'.includes(learned.charAt(1))) {
-						if (learnedGen === dex.gen) {
+					if ('LMTR'.includes(learned.charAt(1))) {
+						if (learnedGen === dex.gen && learned.charAt(1) !== 'R') {
 							// current-gen level-up, TM or tutor moves:
 							//   always available
 							if (babyOnly) setSources.babyOnly = babyOnly;
@@ -1599,6 +1611,7 @@ export class TeamValidator {
 						}
 						// past-gen level-up, TM, or tutor moves:
 						//   available as long as the source gen was or was before this gen
+						if (learned.charAt(1) === 'R') moveSources.restrictedMove = moveid;
 						limit1 = false;
 						moveSources.addGen(learnedGen);
 						limitedEgg = false;
@@ -1617,6 +1630,7 @@ export class TeamValidator {
 						let eggGroups = template.eggGroups;
 						if (!eggGroups) continue;
 						if (eggGroups[0] === 'Undiscovered') eggGroups = dex.getTemplate(template.evos[0]).eggGroups;
+						if (eggGroups[0] === 'Undiscovered' || !eggGroups.length) continue;
 						let atLeastOne = false;
 						const fromSelf = (learned.substr(1) === 'Eany');
 						const eggGroupsSet = new Set(eggGroups);
@@ -1635,8 +1649,7 @@ export class TeamValidator {
 							// unless it's supposed to be self-breedable, can't inherit from self, prevos, evos, etc
 							// only basic pokemon have egg moves, so by now all evolutions should be in alreadyChecked
 							if (!fromSelf && alreadyChecked[father.speciesid]) continue;
-							if (!fromSelf && father.evos.includes(template.id)) continue;
-							if (!fromSelf && father.prevo === template.id) continue;
+							if (!fromSelf && father.prevo === template.id && template.evos.length === 1) continue;
 							// father must be able to learn the move
 							const fatherSources = father.learnset[moveid] || father.learnset['sketch'];
 							if (!fromSelf && !fatherSources) continue;
@@ -1725,8 +1738,8 @@ export class TeamValidator {
 				template = dex.getTemplate(template.prevo);
 				if (template.gen > Math.max(2, dex.gen)) template = null;
 				if (template && !template.abilities['H'] && setSources.isHidden) template = null;
-			} else if (template.baseSpecies !== template.species && template.baseSpecies === 'Rotom') {
-				// only Rotom inherit learnsets from base
+			} else if (template.baseSpecies !== template.species && ['Rotom', 'Necrozma'].includes(template.baseSpecies)) {
+				// only Rotom and Necrozma inherit learnsets from base
 				template = dex.getTemplate(template.baseSpecies);
 			} else {
 				template = null;
